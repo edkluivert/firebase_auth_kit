@@ -1,0 +1,28 @@
+name: firebase_auth_kit
+description: >-
+  Firebase Authentication for DartNative: the complete firebase_auth API in pure Dart
+  over the Identity Toolkit REST API, with persisted sessions, token refresh and
+  multi-factor sign-in.
+version: 0.1.0
+repository: https://github.com/edkluivert/firebase_auth_kit
+topics:
+  - dartnative
+  - firebase
+  - authentication
+  - identity
+  - sign-in
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  collection: ^1.19.0
+  crypto: ^3.0.6
+  http: ^1.2.0
+  meta: ^1.11.0
+  plugin_platform_interface: ^2.1.8
+
+dev_dependencies:
+  async: ^2.11.0
+  lints: ^6.0.0
+  test: ^1.32.0

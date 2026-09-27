@@ -1,0 +1,371 @@
+// ignore_for_file: require_trailing_commas
+// Copyright 2020 The Chromium Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+/// A pure-Dart stand-in for `firebase_core` (`Firebase`, `FirebaseApp`,
+/// `FirebaseOptions`, `FirebaseException`).
+///
+/// FlutterFire's core package hands each plugin the app configuration that the
+/// native Firebase SDK loaded from `GoogleService-Info.plist` /
+/// `google-services.json`. DartNative apps have no native Firebase Auth SDK, so
+/// `firebase_auth_kit` keeps the same Dart API and reads the same files itself
+/// (see [FirebaseOptions.discover]). `Firebase.initializeApp()` is optional:
+/// `Firebase.app()` discovers the default app on first use.
+library;
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:collection/collection.dart';
+import 'package:meta/meta.dart';
+
+import 'apk_resources.dart';
+import 'binary_plist.dart';
+
+part 'firebase_options.dart';
+part 'options_discovery.dart';
+
+/// The default Firebase application name.
+const String defaultFirebaseAppName = '[DEFAULT]';
+
+/// A generic class which provides exceptions in a Firebase-friendly format
+/// to users.
+///
+/// ```dart
+/// try {
+///   await Firebase.initializeApp();
+/// } on FirebaseException catch (e) {
+///   print(e.toString());
+/// }
+/// ```
+@immutable
+class FirebaseException implements Exception {
+  /// A generic class which provides exceptions in a Firebase-friendly format
+  /// to users.
+  FirebaseException({
+    required this.plugin,
+    this.message,
+    String? code,
+    this.stackTrace,
+  }) : code = code ?? 'unknown';
+
+  /// The plugin the exception is for.
+  ///
+  /// The value will be used to prefix the message to give more context about
+  /// the exception.
+  final String plugin;
+
+  /// The long form message of the exception.
+  final String? message;
+
+  /// The optional code to accommodate the message.
+  ///
+  /// Allows users to identify the exception from a short code-name, for example
+  /// "no-app" is used when a user attempts to read a [FirebaseApp] which does
+  /// not exist.
+  final String code;
+
+  /// The stack trace which provides information to the user about the call
+  /// sequence that triggered an exception
+  final StackTrace? stackTrace;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! FirebaseException) return false;
+    return other.hashCode == hashCode;
+  }
+
+  @override
+  int get hashCode => Object.hash(plugin, code, message);
+
+  @override
+  String toString() {
+    String output = '[$plugin/$code] $message';
+
+    if (stackTrace != null) {
+      output += '\n\n$stackTrace';
+    }
+
+    return output;
+  }
+}
+
+/// Throws a consistent cross-platform error message when usage of an app is
+/// attempted but no app has been created.
+FirebaseException noAppExists(String appName) {
+  return FirebaseException(
+      plugin: 'core',
+      code: 'no-app',
+      message:
+          "No Firebase App '$appName' has been created - call Firebase.initializeApp()");
+}
+
+/// Throws a consistent cross-platform error message when an app is initialized
+/// which already exists.
+FirebaseException duplicateApp(String appName) {
+  return FirebaseException(
+      plugin: 'core',
+      code: 'duplicate-app',
+      message: 'A Firebase App named "$appName" already exists');
+}
+
+/// Throws a consistent cross-platform error message when the default app is
+/// requested but no configuration could be found anywhere.
+FirebaseException noDefaultAppInitialization() {
+  return FirebaseException(
+    plugin: 'core',
+    code: 'no-options',
+    message: 'The $defaultFirebaseAppName app cannot be initialized: no Firebase '
+        'configuration was found. Pass FirebaseOptions to '
+        'Firebase.initializeApp(), ship GoogleService-Info.plist / '
+        'google-services.json with the app, or set the FIREBASE_API_KEY, '
+        'FIREBASE_APP_ID and FIREBASE_PROJECT_ID dart-defines.',
+  );
+}
+
+/// Throws a consistent cross-platform error message when a user attempts to
+/// delete the default app.
+FirebaseException noDefaultAppDelete() {
+  return FirebaseException(
+    plugin: 'core',
+    message: 'The default Firebase app instance cannot be deleted.',
+  );
+}
+
+/// The entry point for accessing Firebase.
+///
+/// You can get an instance by calling [Firebase.app()], or a specific app by
+/// name with [Firebase.app('name')].
+class Firebase {
+  // Ensures end-users cannot initialize the class.
+  Firebase._();
+
+  static final Map<String, FirebaseApp> _apps = {};
+
+  /// Returns a list of all [FirebaseApp] instances that have been created.
+  static List<FirebaseApp> get apps {
+    return _apps.values.toList(growable: false);
+  }
+
+  /// Initializes a new [FirebaseApp] instance by [name] and [options] and
+  /// returns the created app. This method should be called before any usage
+  /// of FlutterFire plugins.
+  ///
+  /// The default app instance can be initialized here simply by passing no
+  /// "name" as an argument. Its options are then discovered from the
+  /// config files and dart-defines described in [FirebaseOptions.discover].
+  ///
+  /// Passing a [demoProjectId] creates an app for use against the emulators
+  /// with the same placeholder values FlutterFire uses.
+  static Future<FirebaseApp> initializeApp({
+    String? name,
+    FirebaseOptions? options,
+    String? demoProjectId,
+  }) async {
+    FirebaseOptions? resolvedOptions = options;
+
+    if (demoProjectId != null) {
+      name ??= demoProjectId;
+      resolvedOptions = FirebaseOptions(
+        apiKey: '12345',
+        appId: '1:1:web:1',
+        messagingSenderId: '',
+        projectId: demoProjectId,
+      );
+    }
+
+    final appName = name ?? defaultFirebaseAppName;
+    if (_apps.containsKey(appName)) {
+      final existing = _apps[appName]!;
+      if (resolvedOptions == null || existing.options == resolvedOptions) {
+        return existing;
+      }
+      throw duplicateApp(appName);
+    }
+
+    if (appName == defaultFirebaseAppName) {
+      resolvedOptions ??= FirebaseOptions.discover();
+      if (resolvedOptions == null) {
+        throw noDefaultAppInitialization();
+      }
+    } else if (resolvedOptions == null) {
+      throw FirebaseException(
+        plugin: 'core',
+        code: 'no-options',
+        message: 'FirebaseOptions cannot be null when creating a secondary '
+            'Firebase app.',
+      );
+    }
+
+    final app = FirebaseApp._(appName, resolvedOptions);
+    _apps[appName] = app;
+    return app;
+  }
+
+  /// Returns a [FirebaseApp] instance.
+  ///
+  /// If no name is provided, the default app instance is returned. When the
+  /// default app has not been initialized yet, its options are discovered
+  /// automatically (see [FirebaseOptions.discover]); a [FirebaseException]
+  /// with code `no-app` is thrown for any other name that does not exist.
+  static FirebaseApp app([String name = defaultFirebaseAppName]) {
+    final existing = _apps[name];
+    if (existing != null) return existing;
+
+    if (name == defaultFirebaseAppName) {
+      final options = FirebaseOptions.discover();
+      if (options == null) {
+        throw noDefaultAppInitialization();
+      }
+      final app = FirebaseApp._(name, options);
+      _apps[name] = app;
+      return app;
+    }
+
+    throw noAppExists(name);
+  }
+
+  static void _remove(String name) {
+    _apps.remove(name);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! Firebase) return false;
+    return other.hashCode == hashCode;
+  }
+
+  @override
+  int get hashCode => toString().hashCode;
+
+  @override
+  String toString() => '$Firebase';
+}
+
+/// Represents a single Firebase app instance.
+///
+/// You can get an instance by calling [Firebase.app()].
+class FirebaseApp {
+  FirebaseApp._(this.name, this.options);
+
+  /// The name of this [FirebaseApp].
+  final String name;
+
+  /// The [FirebaseOptions] this app was created with.
+  final FirebaseOptions options;
+
+  bool _isAutomaticDataCollectionEnabled = true;
+
+  /// Deletes this app and frees up system resources.
+  ///
+  /// Once deleted, any plugin functionality using this app instance will throw
+  /// an error.
+  Future<void> delete() async {
+    if (name == defaultFirebaseAppName) {
+      throw noDefaultAppDelete();
+    }
+    final registry = _registries[name];
+    if (registry != null) {
+      await Future.wait(
+        registry.values.map((service) {
+          return service.dispose().catchError((_) {});
+        }),
+      );
+    }
+    _registries.remove(name);
+    Firebase._remove(name);
+  }
+
+  /// Returns whether automatic data collection enabled or disabled.
+  bool get isAutomaticDataCollectionEnabled =>
+      _isAutomaticDataCollectionEnabled;
+
+  /// Sets whether automatic data collection is enabled or disabled.
+  ///
+  /// firebase_auth_kit has no analytics SDK, so this only stores the flag.
+  Future<void> setAutomaticDataCollectionEnabled(bool enabled) async {
+    _isAutomaticDataCollectionEnabled = enabled;
+  }
+
+  /// Sets whether automatic resource management is enabled or disabled.
+  ///
+  /// Kept for API compatibility with `firebase_core`; it has no effect here.
+  Future<void> setAutomaticResourceManagementEnabled(bool enabled) async {}
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! FirebaseApp) return false;
+    return other.name == name && other.options == options;
+  }
+
+  @override
+  int get hashCode => Object.hash(name, options);
+
+  @override
+  String toString() => '$FirebaseApp($name)';
+
+  static final Map<String, Map<Type, _RegisteredFirebaseService>> _registries =
+      {};
+
+  /// Registers a plugin [service] for this app so that [delete] disposes it.
+  void registerService<T extends FirebaseService>(
+    T service, {
+    Future<void> Function(T service)? dispose,
+  }) {
+    final registry = _registries.putIfAbsent(name, () => {});
+    registry[T] = _RegisteredFirebaseService(
+      service,
+      dispose == null ? null : () => dispose(service),
+    );
+  }
+
+  /// Returns the registered service of type [T], if any.
+  T? getService<T extends FirebaseService>() {
+    return _registries[name]?[T]?.service as T?;
+  }
+}
+
+/// Marker interface for per-app plugin instances that [FirebaseApp.delete]
+/// disposes.
+abstract class FirebaseService {}
+
+class _RegisteredFirebaseService {
+  _RegisteredFirebaseService(this.service, this._dispose);
+
+  final FirebaseService service;
+  final Future<void> Function()? _dispose;
+
+  Future<void> dispose() async {
+    await _dispose?.call();
+  }
+}
+
+/// The base class for plugin instances that are scoped to a [FirebaseApp].
+///
+/// In FlutterFire this carries the constants a native plugin publishes at
+/// start-up; there is no native side here, so [pluginConstants] is empty.
+abstract class FirebasePlugin {
+  // ignore: public_member_api_docs
+  FirebasePlugin(this._appName, this._methodChannelName);
+
+  static final Map<dynamic, dynamic> _constantsForPluginApps = {};
+
+  final String _appName;
+  final String _methodChannelName;
+
+  /// Returns any plugin constants this plugin app instance has initialized.
+  Map<dynamic, dynamic> get pluginConstants {
+    final appConstants =
+        _constantsForPluginApps[_appName] as Map<Object?, Object?>?;
+    if (appConstants != null && appConstants[_methodChannelName] != null) {
+      return appConstants[_methodChannelName]! as Map<dynamic, dynamic>;
+    }
+    return {};
+  }
+}
