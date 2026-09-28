@@ -71,7 +71,7 @@ calls the native Firebase SDK through a platform channel. DartNative apps have n
 that SDK, and do not need one: Firebase Auth is a documented HTTPS API, so this package talks to it
 directly from Dart. Same API surface, no native code, no Gradle plugin, no CocoaPods dependency.
 
-**Demo app.** [github.com/edkluivert/firebase_auth_kit_demo](https://github.com/edkluivert/firebase_auth_kit_demo) shows this package, `firestore_kit` and `dartnative_firebase` running together against a real project.
+**Demo app.** [github.com/edkluivert/firebase_kits_demo) shows this package, `firestore_kit` and `dartnative_firebase` running together against a real project.
 
 **What it is not.** It does not replace `dartnative_firebase` (Crashlytics and push notifications
 need the native SDKs) or `firestore_kit` (the database). It pairs with both; see
