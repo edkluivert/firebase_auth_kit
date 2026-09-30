@@ -562,8 +562,9 @@ class _AuthWebPageState extends State<AuthWebPage> {
         if (_finish(request.url)) return NavigationDecision.prevent;
         return NavigationDecision.navigate;
       },
-      // dartnative_webview reports page loads reliably; the callback can be
-      // recognised from those too, so check both.
+      // The redirect normally arrives above (dartnative_webview 1.0.1+); page
+      // loads are checked too, so the screen also works with web views that
+      // only report those.
       onPageStarted: _finish,
       onPageFinished: _finish,
     ));

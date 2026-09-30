@@ -926,8 +926,9 @@ class _AuthWebPageState extends State<AuthWebPage> {
         if (_finish(request.url)) return NavigationDecision.prevent;
         return NavigationDecision.navigate;
       },
-      // dartnative_webview reports page loads reliably; the callback can be
-      // recognised from those too, so check both.
+      // The redirect normally arrives above (dartnative_webview 1.0.1+); page
+      // loads are checked too, so the screen also works with web views that
+      // only report those.
       onPageStarted: _finish,
       onPageFinished: _finish,
     ));
@@ -979,8 +980,10 @@ Firebase app.
 **Verified** against the Auth emulator in the test suite and against a production project on the
 iOS simulator: Google sign-in through the hosted page completed end to end with the screen above.
 The phone reCAPTCHA page is served from inside the app and its completion is a plain http load, so
-it does not depend on the web view reporting custom-scheme navigations (dartnative_webview 1.0.0
-does not).
+it does not depend on the web view reporting custom-scheme navigations at all. For the provider
+flows use `dartnative_webview` 1.0.1 or newer: it hands the custom-scheme redirect to
+`onNavigationRequest` (verified on the iOS simulator). 1.0.0 never did, and the kit then completes
+from the handler page load instead, which also works but shows the page a moment longer.
 
 ---
 

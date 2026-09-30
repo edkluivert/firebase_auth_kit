@@ -44,7 +44,8 @@ implemented over the Identity Toolkit REST API.
   flow for any provider (GitHub, Microsoft, Yahoo, Twitter, SAML, …) and phone
   authentication in production gets its reCAPTCHA token from the same hosted
   page — the flows the iOS Firebase SDK uses, reproduced over REST
-  (`signInWithIdp` with `requestUri` + `sessionId`).
+  (`signInWithIdp` with `requestUri` + `sessionId`). Needs `dartnative_webview`
+  1.0.1+, which delivers the custom-scheme redirect to `onNavigationRequest`.
 - **Tooling**: `FirebaseAuthKit` configuration (persistence, HTTP client,
   reCAPTCHA token provider, OAuth flow handler, URL launcher, redacted request
   logging).

@@ -13,9 +13,10 @@ import '../rest/auth_error_codes.dart';
 /// closed the page without finishing.
 ///
 /// Check [isCallback] on every URL the web view reports: navigation requests
-/// and page loads alike. Some web views (dartnative_webview 1.0.0 among them)
-/// only report page loads, and the kit recognises the callback from those
-/// too. The README section "The web-view screen" shows the whole screen.
+/// (where the custom-scheme redirect arrives with dartnative_webview 1.0.1+)
+/// and page loads alike, since a web view that only reports page loads
+/// (dartnative_webview 1.0.0) still lets the kit recognise the callback from
+/// the handler page. The README section "The web-view screen" shows the screen.
 typedef WebFlowPresenter = Future<Uri?> Function(
   Uri url, {
   required bool Function(Uri candidate) isCallback,
